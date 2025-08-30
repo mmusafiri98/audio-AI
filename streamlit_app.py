@@ -5,28 +5,20 @@ import json
 import os
 import uuid
 import tempfile
+import shutil
 
 # === CONFIG ===
 st.set_page_config(
-    page_title="Video Foley AI",
+    page_title="Video Audio AI",
     page_icon="🎬",
     layout="wide"
 )
 
-# === PATH PER LE CHAT MULTIPLE ===
+# === DIRECTORIES ===
 CHAT_DIR = "chats"
-TEMP_DIR = "temp_videos"
+TEMP_DIR = "temp_files"
 os.makedirs(CHAT_DIR, exist_ok=True)
 os.makedirs(TEMP_DIR, exist_ok=True)
-
-# === SYSTEM PROMPT ===
-SYSTEM_PROMPT = """
-You are Video Foley AI.
-Your role is to help users generate high-quality audio for their videos
-based on video content and text descriptions.
-You were created by Pepe Musafiri.
-Always answer naturally and helpfully about audio generation.
-"""
 
 # === UTILS ===
 def save_chat_history(history, chat_id):
@@ -43,61 +35,80 @@ def load_chat_history(chat_id):
 
 def list_chats():
     files = [f.replace(".json", "") for f in os.listdir(CHAT_DIR) if f.endswith(".json")]
-    return sorted(files)
+    return sorted(files, reverse=True)
 
-def format_history_for_model(chat_history, limit=5):
-    """Formate l'historique pour le modèle avec gestion des vidéos"""
-    formatted_history = []
-    
-    recent_history = chat_history[-limit*2:] if len(chat_history) > limit*2 else chat_history
-    
-    i = 0
-    while i < len(recent_history) - 1:
-        if (recent_history[i]["role"] == "user" and 
-            recent_history[i + 1]["role"] == "assistant"):
-            
-            user_content = recent_history[i]["content"]
-            ai_content = recent_history[i + 1]["content"]
-            
-            if isinstance(user_content, str) and isinstance(ai_content, str):
-                user_content = user_content.strip()
-                ai_content = ai_content.strip()
-                
-                if (user_content and 
-                    user_content != "Vidéo envoyée 🎬" and 
-                    ai_content):
-                    formatted_history.append([user_content, ai_content])
-            
-            i += 2
-        else:
-            i += 1
-    
-    return formatted_history
-
-# === CSS ===
+# === CSS INTERFACE CLAIRE ===
 st.markdown("""
 <style>
-    body, .stApp { font-family: 'Inter', sans-serif; background: #0f0f23; color: #ffffff; }
-    .main-header { text-align: center; font-size: 3rem; font-weight: 700; color: #ffffff; margin-bottom: 0.5rem; 
-                   background: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .subtitle { text-align: center; font-size: 1.2rem; color: #a0a0a0; margin-bottom: 2rem; }
-    .chat-container { max-width: 1000px; margin: auto; padding: 20px; }
-    .message-user, .message-ai { display: flex; margin: 15px 0; }
-    .message-user { justify-content: flex-end; }
-    .message-ai { justify-content: flex-start; }
-    .bubble { border-radius: 16px; padding: 15px 20px; max-width: 75%; box-shadow: 0 4px 12px rgba(0,0,0,0.3); font-size: 0.95rem; }
-    .user-bubble { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
-    .ai-bubble { background: #1a1a2e; border: 1px solid #16213e; color: #ffffff; }
-    .video-container { margin: 10px 0; padding: 15px; background: #16213e; border-radius: 12px; border: 1px solid #0f3460; }
-    .audio-container { margin: 10px 0; padding: 15px; background: #16213e; border-radius: 12px; border: 1px solid #0f3460; }
-    .form-container { background: #16213e; padding: 25px; border-radius: 12px; border: 1px solid #0f3460; margin-top: 20px; }
-    .stButton button { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 8px; border: none; padding: 10px 25px; font-weight: 600; }
-    .stButton button:hover { background: linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%); }
-    .stSelectbox > div > div { background: #1a1a2e; color: white; border: 1px solid #0f3460; }
-    .stTextInput > div > div > input { background: #1a1a2e; color: white; border: 1px solid #0f3460; }
-    .stFileUploader > div { background: #1a1a2e; border: 1px solid #0f3460; border-radius: 8px; }
-    .stApp > footer {visibility: hidden;}
-    .stApp > header {visibility: hidden;}
+    .stApp { font-family: 'Arial', sans-serif; background: #f8f9fa; }
+    .main-header { 
+        text-align: center; 
+        font-size: 2.5rem; 
+        font-weight: 700; 
+        color: #2c3e50; 
+        margin-bottom: 1rem;
+        padding: 20px 0;
+    }
+    .subtitle { 
+        text-align: center; 
+        font-size: 1.1rem; 
+        color: #7f8c8d; 
+        margin-bottom: 2rem; 
+    }
+    .upload-section {
+        background: white;
+        padding: 30px;
+        border-radius: 12px;
+        border: 2px dashed #3498db;
+        margin: 20px 0;
+        text-align: center;
+    }
+    .description-section {
+        background: white;
+        padding: 25px;
+        border-radius: 12px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        margin: 20px 0;
+    }
+    .generate-btn {
+        background: linear-gradient(135deg, #3498db, #2980b9);
+        color: white;
+        border: none;
+        padding: 15px 40px;
+        border-radius: 8px;
+        font-size: 1.1rem;
+        font-weight: 600;
+        cursor: pointer;
+        margin: 20px 0;
+    }
+    .result-section {
+        background: #ecf0f1;
+        padding: 25px;
+        border-radius: 12px;
+        margin: 20px 0;
+        border-left: 4px solid #27ae60;
+    }
+    .error-section {
+        background: #fadbd8;
+        padding: 20px;
+        border-radius: 8px;
+        border-left: 4px solid #e74c3c;
+        margin: 20px 0;
+    }
+    .stButton > button {
+        background: linear-gradient(135deg, #3498db, #2980b9);
+        color: white;
+        border: none;
+        padding: 12px 30px;
+        border-radius: 8px;
+        font-weight: 600;
+    }
+    .stTextArea textarea {
+        border: 2px solid #bdc3c7;
+        border-radius: 8px;
+        padding: 15px;
+        font-size: 1rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -107,171 +118,180 @@ if "chat_id" not in st.session_state:
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = load_chat_history(st.session_state.chat_id)
 
-# === INIT HUNYUAN FOLEY CLIENT ===
+# === INIT CLIENT ===
 if "foley_client" not in st.session_state:
+    st.session_state.foley_client = None
     try:
-        with st.spinner("🎬 Connexion au modèle HunyuanVideo-Foley..."):
+        with st.spinner("Connexion au modèle HunyuanVideo-Foley..."):
             st.session_state.foley_client = Client("tencent/HunyuanVideo-Foley")
-            st.success("✅ Modèle HunyuanVideo-Foley connecté !")
+            st.success("Modèle connecté avec succès!")
     except Exception as e:
-        st.error(f"❌ Erreur de connexion au modèle: {e}")
-        st.session_state.foley_client = None
+        st.error(f"Erreur de connexion: {str(e)}")
 
 # === SIDEBAR ===
-st.sidebar.title("📂 Gestion des projets")
-
-if st.sidebar.button("➕ Nouveau projet"):
-    st.session_state.chat_id = str(uuid.uuid4())
-    st.session_state.chat_history = []
-    save_chat_history(st.session_state.chat_history, st.session_state.chat_id)
-    st.rerun()
-
-available_chats = list_chats()
-if available_chats:
-    selected_chat = st.sidebar.selectbox(
-        "💾 Vos projets sauvegardés :", 
-        available_chats, 
-        index=available_chats.index(st.session_state.chat_id) if st.session_state.chat_id in available_chats else 0
-    )
-
-    if selected_chat and selected_chat != st.session_state.chat_id:
-        st.session_state.chat_id = selected_chat
-        st.session_state.chat_history = load_chat_history(st.session_state.chat_id)
+with st.sidebar:
+    st.title("Projets")
+    
+    if st.button("Nouveau Projet", use_container_width=True):
+        st.session_state.chat_id = str(uuid.uuid4())
+        st.session_state.chat_history = []
+        save_chat_history(st.session_state.chat_history, st.session_state.chat_id)
         st.rerun()
 
-# === INFO SIDEBAR ===
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 🎵 Comment ça marche ?")
-st.sidebar.markdown("""
-1. **Upload ta vidéo** 📹
-2. **Décris l'audio souhaité** 📝
-3. **L'IA génère le son** 🎶
-4. **Télécharge le résultat** ⬇️
-""")
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("### ⚙️ Paramètres avancés")
-num_samples = st.sidebar.slider("Nombre d'échantillons audio", 1, 6, 3)
-audio_length = st.sidebar.slider("Durée audio (sec)", 5, 30, 10)
-
-# === UI HEADER ===
-st.markdown('<div class="chat-container">', unsafe_allow_html=True)
-st.markdown('<h1 class="main-header">🎬 Video Foley AI</h1>', unsafe_allow_html=True)
-st.markdown('<p class="subtitle">Génération automatique d\'audio pour vos vidéos avec IA</p>', unsafe_allow_html=True)
-
-# === AFFICHAGE CHAT ===
-for message in st.session_state.chat_history:
-    if message["role"] == "user":
-        st.markdown(f"""
-        <div class="message-user">
-            <div class="bubble user-bubble">{message['content']}</div>
-        </div>
-        """, unsafe_allow_html=True)
+    available_chats = list_chats()
+    if available_chats:
+        selected_chat = st.selectbox(
+            "Projets sauvegardés:",
+            available_chats,
+            index=available_chats.index(st.session_state.chat_id) if st.session_state.chat_id in available_chats else 0
+        )
         
-        # Affichage vidéo
-        if "video" in message and message["video"] is not None:
-            if os.path.exists(message["video"]):
-                st.markdown('<div class="video-container">', unsafe_allow_html=True)
-                st.video(message["video"])
-                st.markdown('</div>', unsafe_allow_html=True)
+        if selected_chat != st.session_state.chat_id:
+            st.session_state.chat_id = selected_chat
+            st.session_state.chat_history = load_chat_history(st.session_state.chat_id)
+            st.rerun()
+
+    st.markdown("---")
+    st.markdown("**Paramètres:**")
+    num_samples = st.slider("Échantillons audio", 1, 5, 2)
+
+# === HEADER ===
+st.markdown('<h1 class="main-header">🎬 Video Audio AI</h1>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">Générez de l\'audio pour vos vidéos avec l\'IA</p>', unsafe_allow_html=True)
+
+# === HISTORIQUE ===
+if st.session_state.chat_history:
+    st.markdown("### Historique des générations")
+    
+    for i, message in enumerate(st.session_state.chat_history):
+        if message["role"] == "user":
+            with st.expander(f"Projet {len(st.session_state.chat_history)//2 - i//2}", expanded=False):
+                st.write(f"**Description:** {message['content']}")
                 
-    else:
-        st.markdown(f"""
-        <div class="message-ai">
-            <div class="bubble ai-bubble"><b>🎵 Foley AI:</b> {message['content']}</div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Affichage audio généré
-        if "audio_files" in message and message["audio_files"]:
-            st.markdown('<div class="audio-container">', unsafe_allow_html=True)
-            st.markdown("**🎶 Audio généré :**")
-            for idx, audio_file in enumerate(message["audio_files"]):
-                if os.path.exists(audio_file):
-                    st.audio(audio_file, format="audio/wav")
-                    st.download_button(
-                        f"⬇️ Télécharger Audio {idx+1}",
-                        data=open(audio_file, "rb").read(),
-                        file_name=f"foley_audio_{idx+1}.wav",
-                        mime="audio/wav",
-                        key=f"download_{uuid.uuid4()}"
-                    )
-            st.markdown('</div>', unsafe_allow_html=True)
+                if "video" in message and message["video"] and os.path.exists(message["video"]):
+                    st.video(message["video"])
+                
+                # Chercher la réponse AI correspondante
+                if i + 1 < len(st.session_state.chat_history):
+                    ai_response = st.session_state.chat_history[i + 1]
+                    if ai_response["role"] == "assistant":
+                        st.write(f"**Résultat:** {ai_response['content']}")
+                        
+                        if "audio_files" in ai_response and ai_response["audio_files"]:
+                            for idx, audio_file in enumerate(ai_response["audio_files"]):
+                                if os.path.exists(audio_file):
+                                    st.audio(audio_file)
+                                    
+                                    with open(audio_file, "rb") as f:
+                                        st.download_button(
+                                            f"Télécharger Audio {idx+1}",
+                                            data=f.read(),
+                                            file_name=f"foley_audio_{idx+1}.wav",
+                                            mime="audio/wav",
+                                            key=f"dl_{i}_{idx}"
+                                        )
 
 # === FORMULAIRE PRINCIPAL ===
-st.markdown('<div class="form-container">', unsafe_allow_html=True)
+st.markdown("### Nouvelle génération")
 
-with st.form("foley_form", clear_on_submit=True):
-    st.markdown("### 🎬 Génération Audio pour Vidéo")
-    
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        uploaded_video = st.file_uploader(
-            "📹 Upload votre vidéo", 
-            type=["mp4", "avi", "mov", "mkv"],
-            help="Formats supportés: MP4, AVI, MOV, MKV"
-        )
-        
-    with col2:
-        audio_description = st.text_area(
-            "🎵 Description de l'audio souhaité",
-            placeholder="Ex: Bruit de pas sur gravier, musique d'ambiance, explosion, etc.",
-            height=100
-        )
-    
-    additional_notes = st.text_input(
-        "💬 Notes supplémentaires (optionnel)",
-        placeholder="Précisions sur le style, l'intensité, l'ambiance..."
-    )
-    
-    col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
-    with col_btn2:
-        submit = st.form_submit_button("🚀 Générer l'Audio", use_container_width=True)
-
+# Upload de vidéo
+st.markdown('<div class="upload-section">', unsafe_allow_html=True)
+uploaded_video = st.file_uploader(
+    "Sélectionnez votre vidéo",
+    type=["mp4", "avi", "mov", "mkv", "webm"],
+    help="Formats supportés: MP4, AVI, MOV, MKV, WebM"
+)
 st.markdown('</div>', unsafe_allow_html=True)
 
+# Description audio
+st.markdown('<div class="description-section">', unsafe_allow_html=True)
+audio_description = st.text_area(
+    "Décrivez l'audio que vous souhaitez générer:",
+    value="",
+    placeholder="Exemple: ragazzo che suona la chitarra, bruit de pas, musique d'ambiance, explosion...",
+    height=120,
+    help="Soyez précis dans votre description pour de meilleurs résultats"
+)
+
+additional_notes = st.text_input(
+    "Notes supplémentaires (optionnel):",
+    placeholder="Style, intensité, ambiance particulière..."
+)
+st.markdown('</div>', unsafe_allow_html=True)
+
+# === SECTION DE DEBUG (temporaire) ===
+with st.expander("🔧 Debug Info", expanded=False):
+    st.write(f"**Vidéo uploadée:** {uploaded_video is not None}")
+    st.write(f"**Description:** '{audio_description}'")
+    st.write(f"**Description nettoyée:** '{audio_description.strip() if audio_description else 'VIDE'}'")
+    st.write(f"**Longueur description:** {len(audio_description) if audio_description else 0}")
+    st.write(f"**Client connecté:** {st.session_state.foley_client is not None}")
+
+# === BOUTON GÉNÉRATION ===
+col1, col2, col3 = st.columns([1, 2, 1])
+with col2:
+    generate_button = st.button(
+        "🚀 Générer l'Audio", 
+        use_container_width=True,
+        type="primary"
+    )
+
 # === TRAITEMENT ===
-if submit and st.session_state.foley_client:
-    if uploaded_video is not None and audio_description.strip():
-        
-        # Sauvegarde temporaire de la vidéo
-        video_path = os.path.join(TEMP_DIR, f"video_{uuid.uuid4().hex}.mp4")
-        with open(video_path, "wb") as f:
-            f.write(uploaded_video.read())
-        
-        # Préparation du message utilisateur
-        user_message = f"Audio: {audio_description.strip()}"
-        if additional_notes.strip():
-            user_message += f" | Notes: {additional_notes.strip()}"
-        
-        # Formatage de l'historique
-        conversation_history = format_history_for_model(st.session_state.chat_history)
+if generate_button:
+    # Validation claire et détaillée
+    if not uploaded_video:
+        st.error("❌ Aucune vidéo sélectionnée. Veuillez d'abord uploader une vidéo.")
+    elif not audio_description or len(audio_description.strip()) == 0:
+        st.error("❌ Description audio vide. Veuillez décrire l'audio souhaité.")
+    elif not st.session_state.foley_client:
+        st.error("❌ Modèle non connecté. Veuillez rafraîchir la page.")
+    else:
+        # GÉNÉRATION
+        description_clean = audio_description.strip()
         
         try:
-            with st.spinner("🎵 Génération de l'audio en cours... (peut prendre 1-3 minutes)"):
+            # Sauvegarde vidéo temporaire
+            video_path = os.path.join(TEMP_DIR, f"input_video_{uuid.uuid4().hex}.mp4")
+            with open(video_path, "wb") as f:
+                f.write(uploaded_video.read())
+            
+            st.info(f"🎵 Génération en cours pour: '{description_clean}'")
+            
+            with st.spinner("Traitement par l'IA... Cela peut prendre quelques minutes."):
                 
-                # === APPEL AU MODÈLE HUNYUAN FOLEY ===
+                # === APPEL API HUNYUAN FOLEY ===
                 result = st.session_state.foley_client.predict(
                     video_input=video_path,
-                    text_input=audio_description.strip(),
+                    text_input=description_clean,
                     sample_nums=num_samples,
-                    api_name="/generate_audio"  # À ajuster selon l'API
+                    api_name="/predict"  # API name corrigé
                 )
                 
                 # Traitement du résultat
                 if result:
-                    # Sauvegarde des fichiers audio générés
+                    st.success("🎉 Audio généré avec succès!")
+                    
+                    # Sauvegarde des résultats
                     audio_files = []
+                    
                     if isinstance(result, list):
                         for idx, audio_data in enumerate(result):
-                            audio_file_path = os.path.join(TEMP_DIR, f"audio_{uuid.uuid4().hex}_{idx}.wav")
-                            # Sauvegarde selon le format retourné par l'API
+                            audio_file_path = os.path.join(TEMP_DIR, f"generated_audio_{uuid.uuid4().hex}.wav")
+                            
+                            # Copie du fichier audio
                             if isinstance(audio_data, str) and os.path.exists(audio_data):
-                                # Si c'est un chemin de fichier
-                                import shutil
                                 shutil.copy2(audio_data, audio_file_path)
-                            audio_files.append(audio_file_path)
+                                audio_files.append(audio_file_path)
+                    
+                    elif isinstance(result, str) and os.path.exists(result):
+                        audio_file_path = os.path.join(TEMP_DIR, f"generated_audio_{uuid.uuid4().hex}.wav")
+                        shutil.copy2(result, audio_file_path)
+                        audio_files.append(audio_file_path)
+                    
+                    # Préparation du message utilisateur
+                    user_message = f"Audio: {description_clean}"
+                    if additional_notes.strip():
+                        user_message += f" | {additional_notes.strip()}"
                     
                     # Ajout à l'historique
                     st.session_state.chat_history.append({
@@ -280,109 +300,143 @@ if submit and st.session_state.foley_client:
                         "video": video_path
                     })
                     
-                    ai_response = f"✅ Audio généré avec succès ! {len(audio_files)} échantillon(s) créé(s) basé(s) sur votre description : '{audio_description.strip()}'"
+                    ai_response = f"Audio généré: {len(audio_files)} fichier(s) pour '{description_clean}'"
                     
                     st.session_state.chat_history.append({
-                        "role": "assistant", 
+                        "role": "assistant",
                         "content": ai_response,
                         "audio_files": audio_files
                     })
                     
-                    st.success("🎉 Audio généré avec succès !")
+                    # Affichage immédiat du résultat
+                    st.markdown('<div class="result-section">', unsafe_allow_html=True)
+                    st.markdown("### 🎶 Résultat généré")
+                    
+                    col_video, col_audio = st.columns([1, 1])
+                    
+                    with col_video:
+                        st.markdown("**Vidéo originale:**")
+                        st.video(video_path)
+                    
+                    with col_audio:
+                        st.markdown("**Audio généré:**")
+                        for idx, audio_file in enumerate(audio_files):
+                            if os.path.exists(audio_file):
+                                st.audio(audio_file)
+                                
+                                with open(audio_file, "rb") as f:
+                                    st.download_button(
+                                        f"⬇️ Télécharger Audio {idx+1}",
+                                        data=f.read(),
+                                        file_name=f"audio_generated_{idx+1}.wav",
+                                        mime="audio/wav",
+                                        key=f"download_new_{idx}"
+                                    )
+                    st.markdown('</div>', unsafe_allow_html=True)
                     
                 else:
-                    st.error("❌ Erreur lors de la génération audio")
-                    
+                    st.error("❌ Aucun résultat retourné par le modèle")
+                
         except Exception as e:
-            st.error(f"❌ Erreur: {str(e)}")
+            st.markdown('<div class="error-section">', unsafe_allow_html=True)
+            st.error(f"❌ Erreur lors de la génération: {str(e)}")
+            st.markdown("**Solutions possibles:**")
+            st.markdown("- Vérifiez votre connexion internet")
+            st.markdown("- Essayez avec une vidéo plus courte")
+            st.markdown("- Reformulez votre description")
+            st.markdown("- Réessayez dans quelques minutes")
+            st.markdown('</div>', unsafe_allow_html=True)
             
-            # Ajout d'un message d'erreur à l'historique
+            # Enregistrer l'erreur dans l'historique
+            error_message = f"Erreur: {description_clean}"
             st.session_state.chat_history.append({
                 "role": "user",
-                "content": user_message,
-                "video": video_path
+                "content": error_message,
+                "video": video_path if 'video_path' in locals() else None
             })
             st.session_state.chat_history.append({
                 "role": "assistant",
-                "content": f"❌ Désolé, une erreur s'est produite lors de la génération : {str(e)}"
+                "content": f"Erreur lors de la génération: {str(e)}"
             })
         
-        # Sauvegarde de l'historique
+        # Sauvegarde automatique
         save_chat_history(st.session_state.chat_history, st.session_state.chat_id)
-        st.rerun()
-        
-    elif not uploaded_video:
-        st.warning("⚠️ Veuillez upload une vidéo")
-    elif not audio_description.strip():
-        st.warning("⚠️ Veuillez décrire l'audio souhaité")
 
-# === CHAT TEXTE SIMPLE (sans vidéo) ===
+# === EXEMPLES D'UTILISATION ===
 st.markdown("---")
-st.markdown("### 💬 Discussion avec Foley AI")
+st.markdown("### 💡 Exemples de descriptions")
 
-with st.form("text_chat_form", clear_on_submit=True):
-    text_message = st.text_input("💬 Posez une question sur la génération audio")
-    text_submit = st.form_submit_button("💫 Envoyer")
+col1, col2, col3 = st.columns(3)
 
-if text_submit and text_message.strip():
-    conversation_history = format_history_for_model(st.session_state.chat_history)
-    
-    # Réponse simple sans génération audio
-    simple_response = f"Merci pour votre question : '{text_message.strip()}'. Pour générer de l'audio, veuillez uploader une vidéo et décrire l'audio souhaité dans le formulaire ci-dessus."
-    
-    st.session_state.chat_history.append({
-        "role": "user",
-        "content": text_message.strip(),
-        "video": None
-    })
-    st.session_state.chat_history.append({
-        "role": "assistant",
-        "content": simple_response
-    })
-    
-    save_chat_history(st.session_state.chat_history, st.session_state.chat_id)
-    st.rerun()
+with col1:
+    st.markdown("""
+    **🎵 Musique:**
+    - ragazzo che suona la chitarra
+    - piano dolce e melodioso
+    - batteria energica
+    - violino romantico
+    """)
+
+with col2:
+    st.markdown("""
+    **🔊 Effets sonores:**
+    - passi sulla ghiaia
+    - porta che scricchiola
+    - vento tra gli alberi
+    - motore di auto
+    """)
+
+with col3:
+    st.markdown("""
+    **🌍 Ambiances:**
+    - caffè affollato
+    - pioggia leggera
+    - onde del mare
+    - traffico cittadino
+    """)
+
+# === INSTRUCTIONS ===
+st.markdown("---")
+st.markdown("### 📋 Come usare l'app")
+
+st.markdown("""
+1. **Carica la tua vidéo** - Seleziona un file video dal tuo computer
+2. **Descrivi l'audio** - Scrivi cosa vuoi sentire (in italiano o inglese)
+3. **Clicca Genera** - Aspetta che l'IA elabori la richiesta
+4. **Scarica il risultato** - Ottieni i file audio generati
+
+**Nota:** La generazione può richiedere 1-3 minuti a seconda della lunghezza del video.
+""")
 
 # === RESET ===
 if st.session_state.chat_history:
     st.markdown("---")
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
-        if st.button("🗑️ Vider l'historique", use_container_width=True):
+        if st.button("🗑️ Cancella tutto", use_container_width=True):
+            # Pulire anche i file temporanei
+            for message in st.session_state.chat_history:
+                if message["role"] == "user" and "video" in message and message["video"]:
+                    if os.path.exists(message["video"]):
+                        try:
+                            os.remove(message["video"])
+                        except:
+                            pass
+                elif message["role"] == "assistant" and "audio_files" in message:
+                    for audio_file in message["audio_files"]:
+                        if os.path.exists(audio_file):
+                            try:
+                                os.remove(audio_file)
+                            except:
+                                pass
+            
             st.session_state.chat_history = []
             save_chat_history([], st.session_state.chat_id)
             st.rerun()
 
-# === INFO SECTION ===
+# === STATUS ===
 st.markdown("---")
-st.markdown("### 📋 Informations")
-
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.markdown("""
-    **🎯 Fonctionnalités :**
-    - Génération audio à partir de vidéo
-    - Descriptions textuelles personnalisées
-    - Multiples échantillons audio
-    - Historique des projets
-    """)
-
-with col2:
-    st.markdown("""
-    **⚡ Conseils :**
-    - Descriptions claires et précises
-    - Vidéos courtes pour plus de rapidité
-    - Testez différents styles
-    - Sauvegardez vos meilleurs résultats
-    """)
-
-with col3:
-    st.markdown("""
-    **🔧 Modèle :**
-    - HunyuanVideo-Foley (Tencent)
-    - Génération audio haute qualité
-    - Synchronisation vidéo-audio
-    - IA de pointe pour le cinéma
-    """)
-
-st.markdown('</div>', unsafe_allow_html=True)
+if st.session_state.foley_client:
+    st.success("🟢 Modèle HunyuanVideo-Foley prêt")
+else:
+    st.error("🔴 Modèle non disponible - vérifiez votre connexion")
