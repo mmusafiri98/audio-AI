@@ -259,13 +259,37 @@ if generate_button:
             
             with st.spinner("Traitement par l'IA... Cela peut prendre quelques minutes."):
                 
-                # === APPEL API HUNYUAN FOLEY ===
-                result = st.session_state.foley_client.predict(
-                    video_input=video_path,
-                    text_input=description_clean,
-                    sample_nums=num_samples,
-                    api_name="/predict"  # API name corrigé
-                )
+                # === APPEL API HUNYUAN FOLEY - MULTI TENTATIVES ===
+                api_names_to_try = [
+                    "/generate",
+                    "/inference", 
+                    "/run",
+                    "/foley_generate",
+                    "/audio_generation"
+                ]
+                
+                result = None
+                successful_api = None
+                
+                for api_name in api_names_to_try:
+                    try:
+                        st.info(f"Tentative avec API: {api_name}")
+                        
+                        result = st.session_state.foley_client.predict(
+                            video_input=video_path,
+                            text_input=description_clean,
+                            sample_nums=num_samples,
+                            api_name=api_name
+                        )
+                        
+                        if result:
+                            successful_api = api_name
+                            st.success(f"Succès avec API: {api_name}")
+                            break
+                            
+                    except Exception as api_error:
+                        st.warning(f"Échec avec {api_name}: {str(api_error)}")
+                        continue
                 
                 # Traitement du résultat
                 if result:
