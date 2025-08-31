@@ -179,6 +179,19 @@ if st.session_state.chat_history:
                     if ai_response["role"] == "assistant":
                         st.write(f"**Résultat:** {ai_response['content']}")
                         
+                        if "generated_video" in ai_response and ai_response["generated_video"] and os.path.exists(ai_response["generated_video"]):
+                            st.markdown("**Vidéo avec audio:**")
+                            st.video(ai_response["generated_video"])
+                            
+                            with open(ai_response["generated_video"], "rb") as f:
+                                st.download_button(
+                                    "Télécharger Vidéo avec Audio",
+                                    data=f.read(),
+                                    file_name=f"video_with_audio_{idx}.mp4",
+                                    mime="video/mp4",
+                                    key=f"dl_video_{i}_{idx}"
+                                )
+                        
                         if "audio_files" in ai_response and ai_response["audio_files"]:
                             for idx, audio_file in enumerate(ai_response["audio_files"]):
                                 if os.path.exists(audio_file):
@@ -305,32 +318,38 @@ if generate_button:
                     
                     result = None
                 
-                # === TRAITEMENT DU RÉSULTAT ===
+                # === TRAITEMENT DU RÉSULTAT CORRIGÉ ===
                 if result:
                     st.success("🎉 Audio généré avec succès!")
                     
-                    # Sauvegarde des résultats
+                    # Le résultat est un tuple, extraire les données
+                    generated_video_path = None
                     audio_files = []
                     
-                    if isinstance(result, list):
-                        for idx, audio_data in enumerate(result):
-                            audio_file_path = os.path.join(TEMP_DIR, f"generated_audio_{uuid.uuid4().hex}.wav")
+                    try:
+                        # Le premier élément du tuple contient la vidéo avec audio
+                        if isinstance(result, tuple) and len(result) > 0:
+                            first_element = result[0]
                             
-                            # Copie du fichier audio
-                            if isinstance(audio_data, str) and os.path.exists(audio_data):
-                                shutil.copy2(audio_data, audio_file_path)
-                                audio_files.append(audio_file_path)
+                            # Vérifier si c'est un dictionnaire avec une clé 'video'
+                            if isinstance(first_element, dict) and 'video' in first_element:
+                                original_video_path = first_element['video']
+                                
+                                if os.path.exists(original_video_path):
+                                    # Copier la vidéo générée vers notre dossier temp
+                                    generated_video_path = os.path.join(TEMP_DIR, f"video_with_audio_{uuid.uuid4().hex}.mp4")
+                                    shutil.copy2(original_video_path, generated_video_path)
+                                    st.success(f"Vidéo avec audio sauvegardée: {generated_video_path}")
+                        
+                        # Afficher le contenu complet du résultat pour debug
+                        with st.expander("🔍 Détails du résultat", expanded=False):
+                            st.write("**Type du résultat:**", type(result))
+                            st.write("**Longueur du tuple:**", len(result) if isinstance(result, tuple) else "N/A")
+                            for i, item in enumerate(result):
+                                st.write(f"**Élément {i}:**", type(item), item)
                     
-                    elif isinstance(result, str) and os.path.exists(result):
-                        audio_file_path = os.path.join(TEMP_DIR, f"generated_audio_{uuid.uuid4().hex}.wav")
-                        shutil.copy2(result, audio_file_path)
-                        audio_files.append(audio_file_path)
-                    
-                    # Si aucun fichier audio trouvé, afficher le résultat brut
-                    if not audio_files:
-                        st.warning("⚠️ Résultat reçu mais format inattendu:")
-                        st.write("Type du résultat:", type(result))
-                        st.write("Contenu:", result)
+                    except Exception as parse_error:
+                        st.error(f"Erreur lors du parsing du résultat: {parse_error}")
                     
                     # Préparation du message utilisateur
                     user_message = f"Audio: {description_clean}"
@@ -344,27 +363,45 @@ if generate_button:
                         "video": video_path
                     })
                     
-                    ai_response = f"Audio généré: {len(audio_files)} fichier(s) pour '{description_clean}'"
+                    ai_response = f"Vidéo avec audio générée pour '{description_clean}'"
                     
                     st.session_state.chat_history.append({
                         "role": "assistant",
                         "content": ai_response,
+                        "generated_video": generated_video_path,
                         "audio_files": audio_files
                     })
                     
                     # Affichage immédiat du résultat
-                    if audio_files:
-                        st.markdown('<div class="result-section">', unsafe_allow_html=True)
-                        st.markdown("### 🎶 Résultat généré")
-                        
-                        col_video, col_audio = st.columns([1, 1])
-                        
-                        with col_video:
-                            st.markdown("**Vidéo originale:**")
-                            st.video(video_path)
-                        
-                        with col_audio:
-                            st.markdown("**Audio généré:**")
+                    st.markdown('<div class="result-section">', unsafe_allow_html=True)
+                    st.markdown("### 🎶 Résultat généré")
+                    
+                    col_video, col_result = st.columns([1, 1])
+                    
+                    with col_video:
+                        st.markdown("**Vidéo originale (sans audio):**")
+                        st.video(video_path)
+                    
+                    with col_result:
+                        if generated_video_path and os.path.exists(generated_video_path):
+                            st.markdown("**Vidéo avec audio généré:**")
+                            st.video(generated_video_path)
+                            
+                            # Bouton de téléchargement pour la vidéo finale
+                            with open(generated_video_path, "rb") as f:
+                                st.download_button(
+                                    "⬇️ Télécharger Vidéo avec Audio",
+                                    data=f.read(),
+                                    file_name=f"video_with_foley_audio.mp4",
+                                    mime="video/mp4",
+                                    key="download_final_video"
+                                )
+                        else:
+                            st.warning("Vidéo avec audio non trouvée")
+                            
+                        # Afficher les fichiers audio séparés s'ils existent
+                        if audio_files:
+                            st.markdown("**Audio séparé:**")
                             for idx, audio_file in enumerate(audio_files):
                                 if os.path.exists(audio_file):
                                     st.audio(audio_file)
@@ -377,7 +414,7 @@ if generate_button:
                                             mime="audio/wav",
                                             key=f"download_new_{idx}"
                                         )
-                        st.markdown('</div>', unsafe_allow_html=True)
+                    st.markdown('</div>', unsafe_allow_html=True)
                     
                 else:
                     st.error("❌ Aucun résultat retourné par le modèle")
