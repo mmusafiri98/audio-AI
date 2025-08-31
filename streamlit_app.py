@@ -9,7 +9,7 @@ import shutil
 
 # === CONFIG ===
 st.set_page_config(
-    page_title="Vimeo Audio AI",
+    page_title="Video Audio AI",
     page_icon="🎬",
     layout="wide"
 )
@@ -158,7 +158,7 @@ with st.sidebar:
     inference_steps = st.slider("Étapes d'inférence", 10, 100, 50, 5)
 
 # === HEADER ===
-st.markdown('<h1 class="main-header">🎬 Vimeo Audio AI</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-header">🎬 Video Audio AI</h1>', unsafe_allow_html=True)
 st.markdown('<p class="subtitle">Générez de l\'audio pour vos vidéos avec l\'IA</p>', unsafe_allow_html=True)
 
 # === HISTORIQUE ===
@@ -187,9 +187,9 @@ if st.session_state.chat_history:
                                 st.download_button(
                                     "Télécharger Vidéo avec Audio",
                                     data=f.read(),
-                                    file_name=f"video_with_audio_{idx}.mp4",
+                                    file_name=f"video_with_audio_{i}.mp4",
                                     mime="video/mp4",
-                                    key=f"dl_video_{i}_{idx}"
+                                    key=f"dl_video_{i}"
                                 )
                         
                         if "audio_files" in ai_response and ai_response["audio_files"]:
