@@ -1,6 +1,6 @@
 # streamlit_app.py
 import streamlit as st
-from gradio_client import Client
+from gradio_client import Client, handle_file
 import json
 import os
 import uuid
@@ -152,8 +152,10 @@ with st.sidebar:
             st.rerun()
 
     st.markdown("---")
-    st.markdown("**Paramètres:**")
-    num_samples = st.slider("Échantillons audio", 1, 5, 2)
+    st.markdown("**Paramètres Avancés:**")
+    num_samples = st.slider("Échantillons audio", 1, 5, 1)
+    guidance_scale = st.slider("Guidance Scale", 1.0, 10.0, 4.5, 0.5)
+    inference_steps = st.slider("Étapes d'inférence", 10, 100, 50, 5)
 
 # === HEADER ===
 st.markdown('<h1 class="main-header">🎬 Video Audio AI</h1>', unsafe_allow_html=True)
@@ -219,13 +221,29 @@ additional_notes = st.text_input(
 )
 st.markdown('</div>', unsafe_allow_html=True)
 
-# === SECTION DE DEBUG (temporaire) ===
+# === SECTION DE DEBUG ===
 with st.expander("🔧 Debug Info", expanded=False):
     st.write(f"**Vidéo uploadée:** {uploaded_video is not None}")
     st.write(f"**Description:** '{audio_description}'")
     st.write(f"**Description nettoyée:** '{audio_description.strip() if audio_description else 'VIDE'}'")
     st.write(f"**Longueur description:** {len(audio_description) if audio_description else 0}")
     st.write(f"**Client connecté:** {st.session_state.foley_client is not None}")
+    st.write(f"**Paramètres:** samples={num_samples}, guidance={guidance_scale}, steps={inference_steps}")
+    
+    if st.session_state.foley_client:
+        try:
+            # Inspection du modèle
+            st.write("**Attributs du client:**")
+            client_attrs = [attr for attr in dir(st.session_state.foley_client) if not attr.startswith('_')]
+            st.write(client_attrs)
+            
+            if hasattr(st.session_state.foley_client, 'view_api'):
+                if st.button("Voir API Info"):
+                    api_info = st.session_state.foley_client.view_api()
+                    st.code(str(api_info))
+                    
+        except Exception as e:
+            st.write(f"Erreur d'inspection: {e}")
 
 # === BOUTON GÉNÉRATION ===
 col1, col2, col3 = st.columns([1, 2, 1])
@@ -259,39 +277,35 @@ if generate_button:
             
             with st.spinner("Traitement par l'IA... Cela peut prendre quelques minutes."):
                 
-                # === APPEL API HUNYUAN FOLEY - MULTI TENTATIVES ===
-                api_names_to_try = [
-                    "/generate",
-                    "/inference", 
-                    "/run",
-                    "/foley_generate",
-                    "/audio_generation"
-                ]
+                # === APPEL API CORRIGÉ SELON LA DOCUMENTATION ===
+                try:
+                    st.info("Génération avec l'API /process_inference...")
+                    
+                    result = st.session_state.foley_client.predict(
+                        video_file={"video": handle_file(video_path)},
+                        text_prompt=description_clean,
+                        guidance_scale=guidance_scale,
+                        inference_steps=inference_steps,
+                        sample_nums=num_samples,
+                        api_name="/process_inference"
+                    )
+                    
+                    if result:
+                        st.success("🎉 Audio généré avec succès!")
+                    
+                except Exception as api_error:
+                    st.error(f"❌ Erreur API: {str(api_error)}")
+                    
+                    # Diagnostic supplémentaire
+                    st.markdown("**Diagnostic:**")
+                    st.write(f"- Vidéo existe: {os.path.exists(video_path)}")
+                    st.write(f"- Taille vidéo: {os.path.getsize(video_path) if os.path.exists(video_path) else 'N/A'} bytes")
+                    st.write(f"- Description: '{description_clean}'")
+                    st.write(f"- Paramètres: samples={num_samples}, guidance={guidance_scale}, steps={inference_steps}")
+                    
+                    result = None
                 
-                result = None
-                successful_api = None
-                
-                for api_name in api_names_to_try:
-                    try:
-                        st.info(f"Tentative avec API: {api_name}")
-                        
-                        result = st.session_state.foley_client.predict(
-                            video_input=video_path,
-                            text_input=description_clean,
-                            sample_nums=num_samples,
-                            api_name=api_name
-                        )
-                        
-                        if result:
-                            successful_api = api_name
-                            st.success(f"Succès avec API: {api_name}")
-                            break
-                            
-                    except Exception as api_error:
-                        st.warning(f"Échec avec {api_name}: {str(api_error)}")
-                        continue
-                
-                # Traitement du résultat
+                # === TRAITEMENT DU RÉSULTAT ===
                 if result:
                     st.success("🎉 Audio généré avec succès!")
                     
@@ -311,6 +325,12 @@ if generate_button:
                         audio_file_path = os.path.join(TEMP_DIR, f"generated_audio_{uuid.uuid4().hex}.wav")
                         shutil.copy2(result, audio_file_path)
                         audio_files.append(audio_file_path)
+                    
+                    # Si aucun fichier audio trouvé, afficher le résultat brut
+                    if not audio_files:
+                        st.warning("⚠️ Résultat reçu mais format inattendu:")
+                        st.write("Type du résultat:", type(result))
+                        st.write("Contenu:", result)
                     
                     # Préparation du message utilisateur
                     user_message = f"Audio: {description_clean}"
@@ -333,30 +353,31 @@ if generate_button:
                     })
                     
                     # Affichage immédiat du résultat
-                    st.markdown('<div class="result-section">', unsafe_allow_html=True)
-                    st.markdown("### 🎶 Résultat généré")
-                    
-                    col_video, col_audio = st.columns([1, 1])
-                    
-                    with col_video:
-                        st.markdown("**Vidéo originale:**")
-                        st.video(video_path)
-                    
-                    with col_audio:
-                        st.markdown("**Audio généré:**")
-                        for idx, audio_file in enumerate(audio_files):
-                            if os.path.exists(audio_file):
-                                st.audio(audio_file)
-                                
-                                with open(audio_file, "rb") as f:
-                                    st.download_button(
-                                        f"⬇️ Télécharger Audio {idx+1}",
-                                        data=f.read(),
-                                        file_name=f"audio_generated_{idx+1}.wav",
-                                        mime="audio/wav",
-                                        key=f"download_new_{idx}"
-                                    )
-                    st.markdown('</div>', unsafe_allow_html=True)
+                    if audio_files:
+                        st.markdown('<div class="result-section">', unsafe_allow_html=True)
+                        st.markdown("### 🎶 Résultat généré")
+                        
+                        col_video, col_audio = st.columns([1, 1])
+                        
+                        with col_video:
+                            st.markdown("**Vidéo originale:**")
+                            st.video(video_path)
+                        
+                        with col_audio:
+                            st.markdown("**Audio généré:**")
+                            for idx, audio_file in enumerate(audio_files):
+                                if os.path.exists(audio_file):
+                                    st.audio(audio_file)
+                                    
+                                    with open(audio_file, "rb") as f:
+                                        st.download_button(
+                                            f"⬇️ Télécharger Audio {idx+1}",
+                                            data=f.read(),
+                                            file_name=f"audio_generated_{idx+1}.wav",
+                                            mime="audio/wav",
+                                            key=f"download_new_{idx}"
+                                        )
+                        st.markdown('</div>', unsafe_allow_html=True)
                     
                 else:
                     st.error("❌ Aucun résultat retourné par le modèle")
@@ -365,10 +386,11 @@ if generate_button:
             st.markdown('<div class="error-section">', unsafe_allow_html=True)
             st.error(f"❌ Erreur lors de la génération: {str(e)}")
             st.markdown("**Solutions possibles:**")
-            st.markdown("- Vérifiez votre connexion internet")
-            st.markdown("- Essayez avec une vidéo plus courte")
-            st.markdown("- Reformulez votre description")
-            st.markdown("- Réessayez dans quelques minutes")
+            st.markdown("- Vérifiez que le modèle est accessible publiquement")
+            st.markdown("- Consultez la documentation du modèle sur HuggingFace")
+            st.markdown("- Essayez avec une description plus simple")
+            st.markdown("- Vérifiez les paramètres d'entrée requis")
+            st.markdown("- Essayez avec une vidéo plus courte (< 30 secondes)")
             st.markdown('</div>', unsafe_allow_html=True)
             
             # Enregistrer l'erreur dans l'historique
@@ -426,10 +448,11 @@ st.markdown("### 📋 Come usare l'app")
 st.markdown("""
 1. **Carica la tua vidéo** - Seleziona un file video dal tuo computer
 2. **Descrivi l'audio** - Scrivi cosa vuoi sentire (in italiano o inglese)
-3. **Clicca Genera** - Aspetta che l'IA elabori la richiesta
-4. **Scarica il risultato** - Ottieni i file audio generati
+3. **Regola i paramètres** - Usa la sidebar per ajuster guidance_scale et inference_steps
+4. **Clicca Genera** - Aspetta che l'IA elabori la richiesta
+5. **Scarica il risultato** - Ottieni i file audio generati
 
-**Nota:** La generazione può richiedere 1-3 minuti a seconda della lunghezza del video.
+**Nota:** La generazione può richiedere 1-3 minuti a seconda della lunghezza del video e des paramètres.
 """)
 
 # === RESET ===
