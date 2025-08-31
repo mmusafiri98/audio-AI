@@ -9,7 +9,7 @@ import shutil
 
 # === CONFIG ===
 st.set_page_config(
-    page_title="Video Audio AI",
+    page_title="Vimeo Audio AI",
     page_icon="🎬",
     layout="wide"
 )
@@ -158,7 +158,7 @@ with st.sidebar:
     inference_steps = st.slider("Étapes d'inférence", 10, 100, 50, 5)
 
 # === HEADER ===
-st.markdown('<h1 class="main-header">🎬 Video Audio AI</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-header">🎬 Vimeo Audio AI</h1>', unsafe_allow_html=True)
 st.markdown('<p class="subtitle">Générez de l\'audio pour vos vidéos avec l\'IA</p>', unsafe_allow_html=True)
 
 # === HISTORIQUE ===
