@@ -172,7 +172,7 @@ with st.sidebar:
                            font-weight:600;
                            cursor:pointer;
                            width:100%;">
-                🌐 Aller à l'autre app
+                🌐 create video fron image with vimeoAI
             </button>
         </a>
         """,
