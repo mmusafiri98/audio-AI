@@ -159,6 +159,27 @@ with st.sidebar:
     guidance_scale = st.slider("Guidance Scale", 1.0, 10.0, 4.5, 0.5)
     inference_steps = st.slider("Étapes d'inférence", 10, 100, 50, 5)
 
+    st.markdown("---")
+    st.markdown("**Navigation externe :**")
+    st.markdown(
+        """
+        <a href="https://br4dskhbvzaqcdzmxgst7e.streamlit.app" target="_blank">
+            <button style="background: linear-gradient(135deg,#3498db,#2980b9);
+                           color:white;
+                           border:none;
+                           padding:10px 20px;
+                           border-radius:8px;
+                           font-weight:600;
+                           cursor:pointer;
+                           width:100%;">
+                🌐 Aller à l'autre app
+            </button>
+        </a>
+        """,
+        unsafe_allow_html=True
+    )
+
+
 # === HEADER ===
 st.markdown('<h1 class="main-header">🎬 Video Audio AI</h1>', unsafe_allow_html=True)
 st.markdown('<p class="subtitle">Générez de l\'audio pour vos vidéos avec l\'IA</p>', unsafe_allow_html=True)
