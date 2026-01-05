@@ -38,14 +38,23 @@ def extract_audio_from_video(video_path):
 
 
 def get_lyrics_from_audio(audio_path):
+    """
+    Prova a ottenere lyrics automatici.
+    Se Gradio fallisce (BUG NOTO), ritorna None senza crash.
+    """
     try:
-        client = Client("fffiloni/Music-To-Lyrics")
-        return client.predict(
+        client = Client("fffiloni/Music-To-Lyrics", timeout=120)
+        result = client.predict(
             audio_input=handle_file(audio_path),
             api_name="/infer"
         )
-    except Exception as e:
-        st.error(f"Errore lyrics: {e}")
+
+        if not isinstance(result, str) or not result.strip():
+            raise ValueError("Risposta non valida")
+
+        return result
+
+    except Exception:
         return None
 
 
@@ -56,15 +65,15 @@ def get_word_timestamps_from_lyrics(lyrics_text, audio_duration):
 
     time_per_word = audio_duration / len(words)
     timings = []
-    current = 0.0
+    t = 0.0
 
     for w in words:
         timings.append({
             "word": w,
-            "start": current,
-            "end": current + time_per_word
+            "start": t,
+            "end": t + time_per_word
         })
-        current += time_per_word
+        t += time_per_word
 
     return timings
 
@@ -159,7 +168,10 @@ def create_srt_file(word_timings, output_path, words_per_line):
                 end = timedelta(seconds=buffer[-1]["end"])
 
                 f.write(f"{idx}\n")
-                f.write(f"{str(start).split('.')[0]},000 --> {str(end).split('.')[0]},000\n")
+                f.write(
+                    f"{str(start).split('.')[0]},000 --> "
+                    f"{str(end).split('.')[0]},000\n"
+                )
                 f.write(f"{text}\n\n")
 
                 idx += 1
@@ -169,7 +181,7 @@ def create_srt_file(word_timings, output_path, words_per_line):
 # UI
 # =========================
 st.title("🎵 Music Video Lyrics Generator")
-st.markdown("### Lyrics sincronizzati stile Suno (MP4 / WebM VLC)")
+st.markdown("### MP4 / WebM • Fallback lyrics • No crash")
 
 # =========================
 # SIDEBAR
@@ -196,8 +208,13 @@ with col1:
         type=["mp4", "mov", "avi", "mkv", "webm"]
     )
 
+    manual_lyrics = st.text_area(
+        "✍️ Lyrics manuali (fallback)",
+        height=200,
+        help="Usato se l'estrazione automatica fallisce"
+    )
+
     if uploaded_file:
-        # PREVIEW CORRETTA
         st.video(uploaded_file)
 
         if st.button("🎬 Genera Video con Lyrics", type="primary", use_container_width=True):
@@ -212,13 +229,22 @@ with col1:
             progress.progress(30)
 
             lyrics = get_lyrics_from_audio(audio_path)
+
             if not lyrics:
-                st.stop()
+                if manual_lyrics.strip():
+                    lyrics = manual_lyrics
+                    st.info("ℹ️ Uso lyrics inseriti manualmente")
+                else:
+                    st.error("❌ Lyrics non disponibili")
+                    st.stop()
 
             st.session_state.lyrics_data = lyrics
             progress.progress(55)
 
-            timings = get_word_timestamps_from_lyrics(lyrics, video_clip.duration)
+            timings = get_word_timestamps_from_lyrics(
+                lyrics,
+                video_clip.duration
+            )
             progress.progress(75)
 
             output_path = tempfile.NamedTemporaryFile(
@@ -234,7 +260,7 @@ with col1:
             )
 
             progress.progress(100)
-            st.success("✅ Video generato!")
+            st.success("✅ Video generato correttamente!")
             st.balloons()
 
             try:
@@ -271,7 +297,7 @@ with col2:
             )
 
     if st.session_state.lyrics_data:
-        with st.expander("📝 Lyrics Generati", expanded=True):
+        with st.expander("📝 Lyrics", expanded=True):
             st.text_area(
                 "Testo",
                 st.session_state.lyrics_data,
@@ -285,8 +311,9 @@ with col2:
 st.markdown("---")
 st.markdown(
     "<div style='text-align:center;color:gray;font-size:12px'>"
-    "🎵 Powered by Gradio + MoviePy • Streamlit Safe Preview"
+    "🎵 Stable version • Gradio fallback • Streamlit safe"
     "</div>",
     unsafe_allow_html=True
 )
+
 
