@@ -5,7 +5,7 @@ from pathlib import Path
 from gradio_client import Client, handle_file
 import moviepy.editor as mp
 from moviepy.video.tools.subtitles import SubtitlesClip
-import whisper
+import requests
 import json
 from datetime import timedelta
 
@@ -21,12 +21,6 @@ if 'processed_video' not in st.session_state:
     st.session_state.processed_video = None
 if 'lyrics_data' not in st.session_state:
     st.session_state.lyrics_data = None
-
-# Funzioni core
-@st.cache_resource
-def load_whisper_model():
-    """Carica il modello Whisper per il timing delle parole"""
-    return whisper.load_model("base")
 
 def extract_audio_from_video(video_path):
     """Estrae l'audio dal video"""
@@ -50,25 +44,30 @@ def get_lyrics_from_audio(audio_path):
             st.error(f"Errore nell'estrazione lyrics: {str(e)}")
             return None
 
-def get_word_timestamps(audio_path):
-    """Ottiene il timing preciso di ogni parola usando Whisper"""
+def get_word_timestamps_from_lyrics(lyrics_text, audio_duration):
+    """
+    Crea timing approssimativo delle parole basato sulla durata totale
+    (Versione semplificata senza Whisper)
+    """
     with st.spinner("Analisi timing delle parole..."):
-        model = load_whisper_model()
-        result = model.transcribe(
-            audio_path, 
-            word_timestamps=True,
-            language="it"  # Cambia se necessario
-        )
+        words = lyrics_text.split()
+        
+        if len(words) == 0:
+            return []
+        
+        # Calcola tempo medio per parola
+        time_per_word = audio_duration / len(words)
         
         word_timings = []
-        for segment in result['segments']:
-            if 'words' in segment:
-                for word in segment['words']:
-                    word_timings.append({
-                        'word': word['word'].strip(),
-                        'start': word['start'],
-                        'end': word['end']
-                    })
+        current_time = 0
+        
+        for word in words:
+            word_timings.append({
+                'word': word.strip(),
+                'start': current_time,
+                'end': current_time + time_per_word
+            })
+            current_time += time_per_word
         
         return word_timings
 
@@ -76,28 +75,38 @@ def create_subtitle_clip(txt, start, end, video_size):
     """Crea un clip di sottotitolo con stile Suno AI"""
     from moviepy.video.VideoClip import TextClip
     
-    return TextClip(
-        txt,
-        fontsize=70,
-        color='white',
-        font='Arial-Bold',
-        stroke_color='black',
-        stroke_width=3,
-        method='caption',
-        size=(video_size[0] * 0.8, None),
-        align='center'
-    ).set_position(('center', 'bottom')).set_start(start).set_duration(end - start)
+    try:
+        return TextClip(
+            txt,
+            fontsize=70,
+            color='white',
+            font='Arial-Bold',
+            stroke_color='black',
+            stroke_width=3,
+            method='caption',
+            size=(video_size[0] * 0.8, None),
+            align='center'
+        ).set_position(('center', video_size[1] * 0.85)).set_start(start).set_duration(end - start)
+    except:
+        # Fallback senza font specifico
+        return TextClip(
+            txt,
+            fontsize=70,
+            color='white',
+            stroke_color='black',
+            stroke_width=3,
+            method='caption',
+            size=(video_size[0] * 0.8, None),
+            align='center'
+        ).set_position(('center', video_size[1] * 0.85)).set_start(start).set_duration(end - start)
 
-def add_lyrics_to_video(video_path, word_timings, output_path):
+def add_lyrics_to_video(video_path, word_timings, output_path, words_per_line=4):
     """Aggiunge i lyrics sincronizzati al video"""
     with st.spinner("Creazione video con lyrics..."):
         video = mp.VideoFileClip(video_path)
         
         # Crea clips di testo per ogni parola
         subtitle_clips = []
-        
-        # Raggruppa parole in frasi (max 3-4 parole per riga come Suno)
-        words_per_line = 4
         current_line = []
         
         for i, word_data in enumerate(word_timings):
@@ -128,8 +137,7 @@ def add_lyrics_to_video(video_path, word_timings, output_path):
             output_path,
             codec='libx264',
             audio_codec='aac',
-            temp_audiofile=tempfile.NamedTemporaryFile(delete=False, suffix=".m4a").name,
-            remove_temp=True,
+            fps=video.fps,
             logger=None
         )
         
@@ -138,10 +146,9 @@ def add_lyrics_to_video(video_path, word_timings, output_path):
         
         return output_path
 
-def create_srt_file(word_timings, output_path):
+def create_srt_file(word_timings, output_path, words_per_line=4):
     """Crea un file SRT per i sottotitoli"""
     with open(output_path, 'w', encoding='utf-8') as f:
-        words_per_line = 4
         current_line = []
         subtitle_index = 1
         
@@ -154,8 +161,11 @@ def create_srt_file(word_timings, output_path):
                 end_time = timedelta(seconds=current_line[-1]['end'])
                 
                 # Formato SRT
+                start_str = str(start_time).split('.')[0] + ',000'
+                end_str = str(end_time).split('.')[0] + ',000'
+                
                 f.write(f"{subtitle_index}\n")
-                f.write(f"{str(start_time).replace('.', ',')} --> {str(end_time).replace('.', ',')}\n")
+                f.write(f"{start_str} --> {end_str}\n")
                 f.write(f"{text}\n\n")
                 
                 subtitle_index += 1
@@ -169,24 +179,11 @@ st.markdown("### Genera video musicali con lyrics sincronizzati come Suno AI")
 with st.sidebar:
     st.header("⚙️ Configurazioni")
     
-    language = st.selectbox(
-        "Lingua dell'audio",
-        ["it", "en", "fr", "es", "de"],
-        index=0
-    )
-    
     words_per_line = st.slider(
         "Parole per riga",
         min_value=2,
-        max_value=6,
+        max_value=8,
         value=4
-    )
-    
-    font_size = st.slider(
-        "Dimensione testo",
-        min_value=40,
-        max_value=100,
-        value=70
     )
     
     st.markdown("---")
@@ -197,6 +194,9 @@ with st.sidebar:
     3. Sincronizza parole con timing
     4. Genera video finale
     """)
+    
+    st.markdown("---")
+    st.info("💡 **Tip:** Per risultati migliori, usa video con audio chiaro e pulito")
 
 # Layout principale
 col1, col2 = st.columns([1, 1])
@@ -220,38 +220,62 @@ with col1:
         
         # Pulsante processo
         if st.button("🎬 Genera Video con Lyrics", type="primary", use_container_width=True):
+            
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
             try:
                 # Step 1: Estrai audio
+                status_text.text("⏳ Estrazione audio dal video...")
+                progress_bar.progress(20)
                 audio_path, video_clip = extract_audio_from_video(temp_input.name)
+                audio_duration = video_clip.duration
                 st.success("✅ Audio estratto")
                 
                 # Step 2: Ottieni lyrics
+                status_text.text("⏳ Generazione lyrics dall'audio...")
+                progress_bar.progress(40)
                 lyrics_result = get_lyrics_from_audio(audio_path)
+                
                 if lyrics_result:
                     st.success("✅ Lyrics generati")
                     st.session_state.lyrics_data = lyrics_result
-                
-                # Step 3: Ottieni timing parole
-                word_timings = get_word_timestamps(audio_path)
-                st.success(f"✅ Timing analizzato ({len(word_timings)} parole)")
-                
-                # Step 4: Crea video finale
-                output_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4").name
-                final_video = add_lyrics_to_video(
-                    temp_input.name,
-                    word_timings,
-                    output_path
-                )
-                
-                st.session_state.processed_video = output_path
-                st.success("✅ Video generato con successo!")
+                    
+                    # Step 3: Crea timing parole
+                    status_text.text("⏳ Analisi timing delle parole...")
+                    progress_bar.progress(60)
+                    word_timings = get_word_timestamps_from_lyrics(lyrics_result, audio_duration)
+                    st.success(f"✅ Timing analizzato ({len(word_timings)} parole)")
+                    
+                    # Step 4: Crea video finale
+                    status_text.text("⏳ Creazione video con lyrics...")
+                    progress_bar.progress(80)
+                    output_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4").name
+                    final_video = add_lyrics_to_video(
+                        temp_input.name,
+                        word_timings,
+                        output_path,
+                        words_per_line
+                    )
+                    
+                    st.session_state.processed_video = output_path
+                    progress_bar.progress(100)
+                    status_text.text("✅ Completato!")
+                    st.success("✅ Video generato con successo!")
+                    st.balloons()
+                else:
+                    st.error("❌ Impossibile generare lyrics dall'audio")
                 
                 # Cleanup
-                os.unlink(audio_path)
+                try:
+                    os.unlink(audio_path)
+                except:
+                    pass
                 
             except Exception as e:
                 st.error(f"❌ Errore durante il processo: {str(e)}")
-                st.exception(e)
+                import traceback
+                st.code(traceback.format_exc())
 
 with col2:
     st.header("🎥 Risultato")
@@ -273,33 +297,41 @@ with col2:
                 )
         
         with col_b:
-            # Genera e scarica SRT
-            if st.button("📝 Scarica Sottotitoli (SRT)", use_container_width=True):
+            if st.session_state.lyrics_data:
+                # Genera SRT
                 srt_path = tempfile.NamedTemporaryFile(delete=False, suffix=".srt").name
-                # Ricarica word timings per SRT
-                audio_path, _ = extract_audio_from_video(st.session_state.processed_video)
-                word_timings = get_word_timestamps(audio_path)
-                create_srt_file(word_timings, srt_path)
                 
-                with open(srt_path, 'rb') as f:
-                    st.download_button(
-                        label="📥 Download SRT",
-                        data=f,
-                        file_name="subtitles.srt",
-                        mime="text/plain",
-                        use_container_width=True
+                # Ricarica word timings per SRT
+                try:
+                    audio_path_temp, video_temp = extract_audio_from_video(st.session_state.processed_video)
+                    word_timings_temp = get_word_timestamps_from_lyrics(
+                        st.session_state.lyrics_data, 
+                        video_temp.duration
                     )
+                    create_srt_file(word_timings_temp, srt_path, words_per_line)
+                    
+                    with open(srt_path, 'rb') as f:
+                        st.download_button(
+                            label="📝 Scarica SRT",
+                            data=f,
+                            file_name="subtitles.srt",
+                            mime="text/plain",
+                            use_container_width=True
+                        )
+                except:
+                    pass
     
     else:
-        st.info("👈 Carica un video per iniziare")
+        st.info("👈 Carica un video e clicca 'Genera' per iniziare")
     
     # Mostra lyrics se disponibili
     if st.session_state.lyrics_data:
-        with st.expander("📝 Lyrics Generati"):
+        with st.expander("📝 Lyrics Generati", expanded=True):
             st.text_area(
                 "Testo della canzone",
                 value=st.session_state.lyrics_data,
-                height=300
+                height=300,
+                disabled=True
             )
 
 # Footer
@@ -307,7 +339,8 @@ st.markdown("---")
 st.markdown(
     """
     <div style='text-align: center'>
-        <p>Powered by Whisper AI + MoviePy + Gradio</p>
+        <p>🎵 Powered by Gradio AI + MoviePy</p>
+        <p style='font-size: 12px; color: gray;'>Versione Lite - Timing approssimativo</p>
     </div>
     """,
     unsafe_allow_html=True
