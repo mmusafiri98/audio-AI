@@ -1,5 +1,9 @@
-streamlit
-gradio-client
-torch
-transformers
-Pillow
+streamlit==1.32.0
+gradio-client==0.15.0
+moviepy==1.0.3
+openai-whisper==20231117
+ffmpeg-python==0.2.0
+torch==2.2.0
+torchaudio==2.2.0
+numpy==1.24.3
+Pillow==10.2.0
